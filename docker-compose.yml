@@ -1,0 +1,19 @@
+services:
+  audio-move:
+    build: .
+    image: audio-move:latest
+    container_name: audio-move
+    ports:
+      - "8080:8080"
+    environment:
+      # Files are written with this owner. Match the owner of your music folder.
+      PUID: "1000"
+      PGID: "1000"
+      # Folders shown in the browser, comma-separated. Moves outside them are refused.
+      MUSIC_ROOTS: /music
+      # Sent to MusicBrainz in the User-Agent, as their API terms ask.
+      MB_CONTACT: you@example.com
+    volumes:
+      - /path/to/music:/music
+      - ./config:/config
+    restart: unless-stopped

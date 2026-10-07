@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import threading
@@ -15,6 +16,8 @@ from typing import Any, Literal
 from .config import PathError, Roots
 from .tags import TagError, is_audio, read_track
 from .titleformat import Context, compile_format, evaluate_nodes
+
+logger = logging.getLogger(__name__)
 
 Operation = Literal["move", "copy", "rename"]
 Status = Literal["ok", "unchanged", "exists", "duplicate", "error"]
@@ -269,6 +272,7 @@ def execute_plan(
                 _move(item.src, item.dst)
             done.append(item)
         except OSError as e:
+            logger.warning("Cannot %s %s to %s: %s", plan.operation, item.src, item.dst, e)
             item.status = "error"
             item.message = e.strerror or str(e)
     removed: list[str] = []
@@ -297,7 +301,10 @@ class Journal:
         try:
             with open(self.path, encoding="utf-8") as f:
                 return json.load(f)
-        except (OSError, ValueError):
+        except FileNotFoundError:
+            return []
+        except (OSError, ValueError) as e:
+            logger.error("Cannot load the journal %s, history is empty: %s", self.path, e)
             return []
 
     def _save(self, entries: list[dict[str, Any]]) -> None:
@@ -355,6 +362,7 @@ class Journal:
                     _move(dst, src)
                     restored.append(m)
                 except (OSError, PathError) as e:
+                    logger.warning("Cannot undo %s -> %s: %s", src, dst, e)
                     errors.append({"src": src, "dst": dst, "error": str(e)})
             removed = []
             for d in sorted(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +28,13 @@ from .pictures import extract_folder_images, folder_image_info, save_folder_imag
 from .tags import TagError, WriteOptions, is_audio, read_track, write_track
 from .titleformat import Context, format_track
 
+# uvicorn only configures its own loggers, so app.* messages need a root handler.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 cfg = AppConfig.from_env()
 roots = Roots(cfg.roots)
 settings_store = SettingsStore(cfg.config_dir)
@@ -46,12 +54,14 @@ app = FastAPI(title="audio-move", lifespan=lifespan)
 
 
 @app.exception_handler(PathError)
-async def _path_error(_req: Request, exc: PathError):
+async def _path_error(req: Request, exc: PathError):
+    logger.warning("%s %s: %s", req.method, req.url, exc)
     return JSONResponse({"detail": str(exc)}, status_code=400)
 
 
 @app.exception_handler(MusicBrainzError)
-async def _mb_error(_req: Request, exc: MusicBrainzError):
+async def _mb_error(req: Request, exc: MusicBrainzError):
+    logger.warning("%s %s: %s", req.method, req.url, exc)
     return JSONResponse({"detail": str(exc)}, status_code=502)
 
 
@@ -86,8 +96,8 @@ def _dir_summary(path: str) -> dict[str, Any]:
                     has_children = True
                 elif is_audio(e.name):
                     audio += 1
-    except OSError:
-        pass
+    except OSError as e:
+        logger.warning("Cannot list %s: %s", path, e)
     return {
         "name": os.path.basename(path) or path,
         "path": path,
@@ -105,6 +115,7 @@ def browse(path: str = "") -> dict[str, Any]:
     try:
         entries = [e for e in os.scandir(real) if e.is_dir() and not e.name.startswith(".")]
     except OSError as e:
+        logger.warning("Cannot open folder %s: %s", real, e)
         raise HTTPException(400, f"Cannot open folder: {e.strerror}") from e
     entries.sort(key=lambda e: _natural_key(e.name))
     dirs = list(io_pool.map(lambda e: _dir_summary(e.path), entries))
@@ -136,6 +147,7 @@ def _read_many(paths: list[str]) -> tuple[list[dict], list[dict]]:
         try:
             return read_track(p), None
         except (TagError, OSError) as e:
+            logger.warning("Cannot read %s: %s", p, e)
             return None, {"path": p, "error": str(e)}
 
     tracks, errors = [], []
@@ -207,6 +219,7 @@ def save_tags(body: SaveBody) -> dict[str, Any]:
                 "track": write_track(path, item.set, item.remove, opts, item.remove_pictures),
             }
         except (TagError, OSError, PathError) as e:
+            logger.warning("Cannot save tags to %s: %s", item.path, e)
             return {"path": item.path, "ok": False, "error": str(e)}
 
     results = list(io_pool.map(save_one, body.items))
@@ -323,6 +336,7 @@ def fileops_undo(body: UndoBody) -> dict[str, Any]:
     except KeyError as e:
         raise HTTPException(404, "Unknown operation") from e
     except ValueError as e:
+        logger.warning("Cannot undo %s: %s", body.id, e)
         raise HTTPException(400, str(e)) from e
 
 

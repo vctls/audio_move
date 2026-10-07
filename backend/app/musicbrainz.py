@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from collections import OrderedDict
@@ -20,6 +21,8 @@ _UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
 )
 _LUCENE_SPECIAL = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')
+
+logger = logging.getLogger(__name__)
 
 
 class MusicBrainzError(Exception):
@@ -74,12 +77,12 @@ def summarize_release(r: dict) -> dict[str, Any]:
     return {
         "id": r["id"],
         "score": r.get("score"),
-        "title": r.get("title", ""),
-        "disambiguation": r.get("disambiguation", ""),
+        "title": r.get("title") or "",
+        "disambiguation": r.get("disambiguation") or "",
         "artist": artist_credit(r.get("artist-credit")),
-        "date": r.get("date", ""),
-        "country": r.get("country", ""),
-        "status": r.get("status", ""),
+        "date": r.get("date") or "",
+        "country": r.get("country") or "",
+        "status": r.get("status") or "",
         "barcode": r.get("barcode") or "",
         "labels": [
             {
@@ -220,6 +223,23 @@ def release_with_tags(release: dict, opts: TagOptions) -> dict:
     return out
 
 
+def _describe(e: httpx.HTTPError) -> str:
+    # Timeouts and some connection errors stringify to "", so the type is the useful part.
+    return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+
+
+def _log_response(message: str, resp: httpx.Response) -> None:
+    body = " ".join(resp.text[:500].split())
+    logger.warning(
+        "%s: HTTP %s for %s (retry-after=%s) body=%r",
+        message,
+        resp.status_code,
+        resp.url,
+        resp.headers.get("retry-after"),
+        body,
+    )
+
+
 class MusicBrainzClient:
     """Async client honouring the MusicBrainz limit of one request per second."""
 
@@ -243,29 +263,48 @@ class MusicBrainzClient:
             self._cache.move_to_end(key)
             return self._cache[key]
         params = {**params, "fmt": "json"}
+        url = f"{API_ROOT}/{path}"
         for attempt in range(4):
             async with self._lock:
                 wait = self._last + self._min_interval - time.monotonic()
                 if wait > 0:
                     await asyncio.sleep(wait)
+                started = time.monotonic()
                 try:
-                    resp = await self._client.get(f"{API_ROOT}/{path}", params=params)
+                    resp = await self._client.get(url, params=params)
+                    took = time.monotonic() - started
                 except httpx.HTTPError as e:
-                    raise MusicBrainzError(f"MusicBrainz request failed: {e}") from e
+                    logger.warning(
+                        "MusicBrainz GET %s %s failed after %.1fs: %s",
+                        url,
+                        params,
+                        time.monotonic() - started,
+                        _describe(e),
+                    )
+                    raise MusicBrainzError(f"MusicBrainz request failed: {_describe(e)}") from e
                 finally:
                     self._last = time.monotonic()
+            logger.debug("MusicBrainz GET %s -> %s in %.2fs", resp.url, resp.status_code, took)
             if resp.status_code == 503 and attempt < 3:
+                logger.info("MusicBrainz returned 503 for %s, retry %d/3", resp.url, attempt + 1)
                 await asyncio.sleep(1.5 * (attempt + 1))
                 continue
             if resp.status_code == 404:
+                logger.info("MusicBrainz returned 404 for %s", resp.url)
                 raise MusicBrainzError("Not found on MusicBrainz")
             if resp.status_code >= 400:
+                _log_response("MusicBrainz error", resp)
                 raise MusicBrainzError(f"MusicBrainz returned HTTP {resp.status_code}")
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as e:
+                _log_response("MusicBrainz sent invalid JSON", resp)
+                raise MusicBrainzError("MusicBrainz sent an invalid response") from e
             self._cache[key] = data
             if len(self._cache) > 200:
                 self._cache.popitem(last=False)
             return data
+        _log_response("MusicBrainz still rate limiting after 3 retries", resp)
         raise MusicBrainzError("MusicBrainz is rate limiting requests, try again shortly")
 
     async def search(self, query: str, limit: int = 25, offset: int = 0) -> dict[str, Any]:
@@ -302,12 +341,23 @@ class MusicBrainzClient:
 
     async def cover(self, mbid: str, size: str) -> bytes:
         suffix = "front" if size == "original" else f"front-{size}"
+        url = f"{CAA_ROOT}/release/{mbid}/{suffix}"
+        started = time.monotonic()
         try:
-            resp = await self._client.get(f"{CAA_ROOT}/release/{mbid}/{suffix}")
+            resp = await self._client.get(url)
         except httpx.HTTPError as e:
-            raise MusicBrainzError(f"Cover Art Archive request failed: {e}") from e
+            logger.warning("Cover Art Archive GET %s failed: %s", url, _describe(e))
+            raise MusicBrainzError(f"Cover Art Archive request failed: {_describe(e)}") from e
+        logger.debug(
+            "Cover Art Archive GET %s -> %s in %.2fs",
+            resp.url,
+            resp.status_code,
+            time.monotonic() - started,
+        )
         if resp.status_code == 404:
+            logger.info("Cover Art Archive returned 404 for %s", resp.url)
             raise MusicBrainzError("This release has no front cover on the Cover Art Archive")
         if resp.status_code >= 400:
+            _log_response("Cover Art Archive error", resp)
             raise MusicBrainzError(f"Cover Art Archive returned HTTP {resp.status_code}")
         return resp.content

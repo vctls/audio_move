@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import struct
 from collections import defaultdict
@@ -14,6 +15,8 @@ from mutagen.apev2 import APEBinaryValue, APEv2File
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import ID3
 from mutagen.mp4 import MP4, MP4Cover
+
+logger = logging.getLogger(__name__)
 
 # ID3 APIC and FLAC share this numbering.
 PICTURE_TYPES = {
@@ -248,7 +251,8 @@ def extract_folder_images(paths: list[str], stem: str) -> list[dict[str, Any]]:
         for path in files:
             try:
                 audio = mutagen.File(path)
-            except (mutagen.MutagenError, OSError):
+            except (mutagen.MutagenError, OSError) as e:
+                logger.warning("Cannot read pictures from %s: %s", path, e)
                 continue
             for pic in embedded_pictures(audio) if audio else []:
                 if pic.mime not in FOLDER_IMAGE_EXTENSIONS:
@@ -268,6 +272,7 @@ def extract_folder_images(paths: list[str], stem: str) -> list[dict[str, Any]]:
                 f.write(pic.data)
             results.append({"dir": directory, "ok": True, "path": target})
         except OSError as e:
+            logger.warning("Cannot write %s: %s", target, e)
             results.append({"dir": directory, "ok": False, "message": e.strerror or str(e)})
     return results
 
@@ -289,5 +294,6 @@ def save_folder_image(directory: str, stem: str, data: bytes, overwrite: bool) -
             if other != target:
                 os.remove(other)
     except OSError as e:
+        logger.warning("Cannot save cover art to %s: %s", target, e)
         return {"path": target, "ok": False, "error": e.strerror or str(e)}
     return {"path": target, "ok": True}

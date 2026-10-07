@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PATTERN = (
     "%album artist% - %year% - %album% '['$caps(%codec%)']'/%track number% - %artist% - %title%"
@@ -115,7 +118,8 @@ class SettingsStore:
                     return Settings.model_validate(json.load(f))
             except FileNotFoundError:
                 return Settings()
-            except (OSError, ValueError):
+            except (OSError, ValueError) as e:
+                logger.error("Cannot load %s, using default settings: %s", self.path, e)
                 return Settings()
 
     def save(self, settings: Settings) -> Settings:

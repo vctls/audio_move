@@ -12,9 +12,13 @@ from app.musicbrainz import (
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "release_2x_vinyl.json")
 
 
-def load():
+def load_raw():
     with open(FIXTURE, encoding="utf-8") as f:
-        return summarize_release_detail(json.load(f))
+        return json.load(f)
+
+
+def load():
+    return summarize_release_detail(load_raw())
 
 
 def test_summary():
@@ -54,6 +58,16 @@ def test_track_tags_options():
     assert tags["TRACKNUMBER"] == ["3"]
     assert "MUSICBRAINZ_ALBUMID" not in tags
     assert "LABEL" not in tags
+
+
+def test_null_release_fields():
+    raw = load_raw()
+    for key in ("status", "country", "date", "disambiguation"):
+        raw[key] = None
+    tags = release_with_tags(summarize_release_detail(raw), TagOptions())["media"][0]["tracks"][0][
+        "tags"
+    ]
+    assert not {"DATE", "RELEASESTATUS", "RELEASECOUNTRY"} & tags.keys()
 
 
 def test_single_disc_omits_disc_number():

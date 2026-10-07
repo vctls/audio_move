@@ -76,12 +76,36 @@ def _root_name(root: str) -> str:
 # --- browsing ----------------------------------------------------------------------
 
 
+class PathsBody(BaseModel):
+    paths: list[str]
+
+
 @app.get("/api/config")
 def get_config() -> dict[str, Any]:
     return {
         "roots": [{"name": _root_name(r), "path": r} for r in cfg.roots],
         "max_tracks": cfg.max_tracks,
     }
+
+
+@app.get("/api/browse")
+def browse(path: str = "") -> dict[str, Any]:
+    """List subfolder names only.
+
+    On a NAS every scandir is a round trip, so the client asks for summaries of
+    the folders it actually shows.
+    """
+    if not path:
+        return {"path": "", "dirs": [{"name": _root_name(r), "path": r} for r in cfg.roots]}
+    real = roots.resolve(path)
+    try:
+        with os.scandir(real) as it:
+            names = [e.name for e in it if not e.name.startswith(".") and e.is_dir()]
+    except OSError as e:
+        logger.warning("Cannot open folder %s: %s", real, e)
+        raise HTTPException(400, f"Cannot open folder: {e.strerror}") from e
+    names.sort(key=_natural_key)
+    return {"path": real, "dirs": [{"name": n, "path": os.path.join(real, n)} for n in names]}
 
 
 def _dir_summary(path: str) -> dict[str, Any]:
@@ -98,31 +122,27 @@ def _dir_summary(path: str) -> dict[str, Any]:
                     audio += 1
     except OSError as e:
         logger.warning("Cannot list %s: %s", path, e)
-    return {
-        "name": os.path.basename(path) or path,
-        "path": path,
-        "has_children": has_children,
-        "audio": audio,
-    }
+    return {"has_children": has_children, "audio": audio}
 
 
-@app.get("/api/browse")
-def browse(path: str = "") -> dict[str, Any]:
-    if not path:
-        dirs = [{**_dir_summary(r), "name": _root_name(r)} for r in cfg.roots]
-        return {"path": "", "dirs": dirs}
-    real = roots.resolve(path)
-    try:
-        entries = [e for e in os.scandir(real) if e.is_dir() and not e.name.startswith(".")]
-    except OSError as e:
-        logger.warning("Cannot open folder %s: %s", real, e)
-        raise HTTPException(400, f"Cannot open folder: {e.strerror}") from e
-    entries.sort(key=lambda e: _natural_key(e.name))
-    dirs = list(io_pool.map(lambda e: _dir_summary(e.path), entries))
-    return {"path": real, "dirs": dirs}
+@app.post("/api/browse/summary")
+def browse_summary(body: PathsBody) -> dict[str, Any]:
+    paths = [p for p in body.paths[:200] if roots.contains(p)]
+    summaries = io_pool.map(lambda p: _dir_summary(roots.resolve(p)), paths)
+    return {"summaries": dict(zip(paths, summaries, strict=True))}
 
 
-def _collect_audio(path: str, recursive: bool, limit: int) -> tuple[list[str], bool]:
+class TooManyTracks(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _collect_audio(path: str, recursive: bool, limit: int) -> list[str]:
+    """List audio files in path, raising TooManyTracks as soon as the limit is passed.
+
+    Stopping early keeps an accidental click on a whole library cheap.
+    """
     found: list[str] = []
     if not recursive:
         names = sorted(os.listdir(path), key=_natural_key)
@@ -131,15 +151,19 @@ def _collect_audio(path: str, recursive: bool, limit: int) -> tuple[list[str], b
             for n in names
             if is_audio(n) and os.path.isfile(os.path.join(path, n))
         ]
-        return found[:limit], len(found) > limit
-    for dirpath, dirnames, filenames in os.walk(path):
+        if len(found) > limit:
+            raise TooManyTracks("tracks")
+        return found
+    for visited, (dirpath, dirnames, filenames) in enumerate(os.walk(path)):
+        if visited > 2 * limit:
+            raise TooManyTracks("folders")
         dirnames[:] = sorted((d for d in dirnames if not d.startswith(".")), key=_natural_key)
         for n in sorted(filenames, key=_natural_key):
             if is_audio(n):
                 found.append(os.path.join(dirpath, n))
                 if len(found) > limit:
-                    return found[:limit], True
-    return found, False
+                    raise TooManyTracks("tracks")
+    return found
 
 
 def _read_many(paths: list[str]) -> tuple[list[dict], list[dict]]:
@@ -171,18 +195,22 @@ def _with_folder_images(tracks: list[dict]) -> list[dict]:
 
 
 @app.get("/api/tracks")
-def list_tracks(path: str, recursive: bool = True) -> dict[str, Any]:
+def list_tracks(path: str, recursive: bool = True, force: bool = False) -> dict[str, Any]:
     real = roots.resolve(path)
-    if os.path.isfile(real):
-        paths, truncated = [real], False
-    else:
-        paths, truncated = _collect_audio(real, recursive, cfg.max_tracks)
+    limit = cfg.max_tracks if force else cfg.large_folder_tracks
+    try:
+        paths = [real] if os.path.isfile(real) else _collect_audio(real, recursive, limit)
+    except TooManyTracks as e:
+        return {
+            "tracks": [],
+            "errors": [],
+            "too_many": True,
+            "reason": e.reason,
+            "limit": limit,
+            "forced": force,
+        }
     tracks, errors = _read_many(paths)
-    return {"tracks": _with_folder_images(tracks), "errors": errors, "truncated": truncated}
-
-
-class PathsBody(BaseModel):
-    paths: list[str]
+    return {"tracks": _with_folder_images(tracks), "errors": errors, "too_many": False}
 
 
 @app.post("/api/tracks/read")

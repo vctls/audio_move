@@ -87,6 +87,7 @@ class AppConfig:
     static_dir: str
     user_agent: str
     max_tracks: int
+    large_folder_tracks: int
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -103,6 +104,7 @@ class AppConfig:
             ),
             user_agent=f"audio-move/0.1 ( {contact} )",
             max_tracks=int(os.environ.get("MAX_TRACKS", "5000")),
+            large_folder_tracks=int(os.environ.get("LARGE_FOLDER_TRACKS", "1000")),
         )
 
 

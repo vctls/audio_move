@@ -1,19 +1,26 @@
 import { reactive } from 'vue'
 import { api } from '../api'
 import { errorText, toast } from '../store'
-import type { DirEntry } from '../types'
+import type { DirEntry, DirSummary } from '../types'
 
 interface NodeState {
   expanded: boolean
   loading: boolean
   children?: DirEntry[]
+  shown: number
 }
+
+// Huge folders render their children in pages so the DOM stays small.
+export const PAGE_SIZE = 500
 
 // Expansion state shared by the sidebar tree and the folder picker.
 export const tree = reactive({
   roots: [] as DirEntry[],
   nodes: {} as Record<string, NodeState>,
+  summaries: {} as Record<string, DirSummary>,
 })
+
+const nodeState = (path: string) => (tree.nodes[path] ??= { expanded: false, loading: false, shown: PAGE_SIZE })
 
 export async function loadRoots() {
   try {
@@ -24,10 +31,13 @@ export async function loadRoots() {
 }
 
 async function loadChildren(path: string) {
-  const node = (tree.nodes[path] ??= { expanded: false, loading: false })
+  const node = nodeState(path)
   node.loading = true
   try {
     node.children = (await api.browse(path)).dirs
+    node.shown = PAGE_SIZE
+    const known = tree.summaries[path]
+    tree.summaries[path] = { audio: known?.audio ?? 0, has_children: node.children.length > 0 }
   } catch (e) {
     node.children = []
     toast(errorText(e), 'error')
@@ -37,9 +47,13 @@ async function loadChildren(path: string) {
 }
 
 export async function toggle(path: string) {
-  const node = (tree.nodes[path] ??= { expanded: false, loading: false })
+  const node = nodeState(path)
   node.expanded = !node.expanded
   if (node.expanded && !node.children) await loadChildren(path)
+}
+
+export function showMore(path: string) {
+  nodeState(path).shown += PAGE_SIZE
 }
 
 /**
@@ -51,9 +65,11 @@ export async function reveal(path: string) {
   const parts = path.slice(root.path.length).split('/').filter(Boolean)
   let current = root.path
   for (const part of parts) {
-    const node = (tree.nodes[current] ??= { expanded: false, loading: false })
+    const node = nodeState(current)
     if (!node.children) await loadChildren(current)
     node.expanded = true
+    const index = node.children?.findIndex((c) => c.name === part) ?? -1
+    if (index >= node.shown) node.shown = index + 1
     current = `${current}/${part}`
   }
 }
@@ -66,6 +82,7 @@ export async function refreshTree() {
   const expanded = Object.entries(tree.nodes)
     .filter(([, n]) => n.children)
     .map(([p]) => p)
+  tree.summaries = {}
   await Promise.all(
     expanded.map(async (p) => {
       try {
@@ -75,4 +92,68 @@ export async function refreshTree() {
       }
     }),
   )
+}
+
+// --- summaries -------------------------------------------------------------------
+
+// Track counts and expand arrows are fetched in batches, only for folders that
+// are on screen, so opening a folder with thousands of subfolders stays instant.
+const BATCH_SIZE = 100
+const queued = new Set<string>()
+const inflight = new Set<string>()
+let flushing = false
+let timer: ReturnType<typeof setTimeout> | undefined
+
+export function requestSummary(path: string) {
+  if (path in tree.summaries || inflight.has(path)) return
+  queued.add(path)
+  clearTimeout(timer)
+  timer = setTimeout(flush, 40)
+}
+
+export function cancelSummary(path: string) {
+  queued.delete(path)
+}
+
+async function flush() {
+  if (flushing) return
+  flushing = true
+  try {
+    while (queued.size) {
+      const batch = [...queued].slice(0, BATCH_SIZE)
+      for (const p of batch) {
+        queued.delete(p)
+        inflight.add(p)
+      }
+      try {
+        const { summaries } = await api.browseSummary(batch)
+        Object.assign(tree.summaries, summaries)
+      } catch {
+        // Failed folders stay unknown and are asked for again when they scroll back into view.
+      } finally {
+        for (const p of batch) inflight.delete(p)
+      }
+    }
+  } finally {
+    flushing = false
+  }
+}
+
+const visibilityCallbacks = new WeakMap<Element, (visible: boolean) => void>()
+let observer: IntersectionObserver | undefined
+
+export function observeVisibility(el: Element, callback: (visible: boolean) => void) {
+  observer ??= new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) visibilityCallbacks.get(e.target)?.(e.isIntersecting)
+    },
+    { rootMargin: '300px 0px' },
+  )
+  visibilityCallbacks.set(el, callback)
+  observer.observe(el)
+}
+
+export function unobserveVisibility(el: Element) {
+  observer?.unobserve(el)
+  visibilityCallbacks.delete(el)
 }

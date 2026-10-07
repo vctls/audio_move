@@ -25,7 +25,7 @@ watch(
       :key="root.path"
       :dir="root"
       :depth="0"
-      :active="state.folder"
+      :active="state.loadingPath || state.folder"
       @pick="loadFolder"
     />
     <p v-if="!tree.roots.length" class="muted empty">No music folder is mounted.</p>

@@ -1,6 +1,7 @@
 import type {
   AppConfig,
   DirEntry,
+  DirSummary,
   ExecuteResult,
   HistoryEntry,
   MbRelease,
@@ -11,15 +12,17 @@ import type {
   Tags,
   Track,
   TrackInfo,
+  TracksResponse,
 } from './types'
 
 export class ApiError extends Error {}
 
-async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const resp = await fetch(url, {
     method,
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   })
   if (!resp.ok) {
     let detail = `${resp.status} ${resp.statusText}`
@@ -51,11 +54,10 @@ export interface FileOpRequest {
 export const api = {
   config: () => request<AppConfig>('GET', '/api/config'),
   browse: (path: string) => request<{ path: string; dirs: DirEntry[] }>('GET', `/api/browse?${qs({ path })}`),
-  tracks: (path: string, recursive: boolean) =>
-    request<{ tracks: Track[]; errors: { path: string; error: string }[]; truncated: boolean }>(
-      'GET',
-      `/api/tracks?${qs({ path, recursive })}`,
-    ),
+  browseSummary: (paths: string[]) =>
+    request<{ summaries: Record<string, DirSummary> }>('POST', '/api/browse/summary', { paths }),
+  tracks: (path: string, recursive: boolean, force: boolean, signal?: AbortSignal) =>
+    request<TracksResponse>('GET', `/api/tracks?${qs({ path, recursive, force })}`, undefined, signal),
   readTracks: (paths: string[]) =>
     request<{ tracks: Track[]; errors: { path: string; error: string }[] }>('POST', '/api/tracks/read', { paths }),
   saveTags: (items: { path: string; set: Tags; remove: string[]; remove_pictures: boolean }[]) =>

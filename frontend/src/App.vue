@@ -26,7 +26,7 @@ import {
   state,
   undo,
 } from './store'
-import { formatLength, isEditableTarget } from './util'
+import { basename, formatLength, isEditableTarget } from './util'
 
 type DialogName = 'autonumber' | 'guess' | 'format' | 'pictures' | 'mb' | 'move' | 'settings' | null
 const dialog = ref<DialogName>(null)
@@ -164,7 +164,7 @@ onBeforeUnmount(() => {
 
     <footer class="statusbar">
       <span class="ellipsis grow">{{ state.folder || 'Pick a folder on the left to load its tracks' }}</span>
-      <span v-if="state.loading">Loading…</span>
+      <span v-if="state.loadingPath">Loading {{ basename(state.loadingPath) }}…</span>
       <span>{{ state.tracks.length }} tracks · {{ formatLength(totalLength) }}</span>
       <span v-if="state.selected.size"> {{ state.selected.size }} selected · {{ formatLength(selectedLength) }} </span>
       <span v-if="pendingCount" class="pending">{{ pendingCount }} unsaved</span>

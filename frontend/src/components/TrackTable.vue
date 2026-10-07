@@ -5,6 +5,7 @@ import {
   fieldValues,
   isPending,
   isPictureRemovalPending,
+  loadFolder,
   parseInput,
   selectOnly,
   selectRange,
@@ -14,7 +15,7 @@ import {
   toggleSelected,
 } from '../store'
 import type { Track } from '../types'
-import { formatDims, formatLength, pictureLabel, relativeTo } from '../util'
+import { basename, formatDims, formatLength, pictureLabel, relativeTo } from '../util'
 
 interface Column {
   key: string
@@ -206,87 +207,124 @@ function onHeaderClick(col: Column) {
 </script>
 
 <template>
-  <div ref="container" class="tracks" tabindex="0" @keydown="onKey">
-    <table v-if="state.tracks.length" :style="{ width: tableWidth + 'px' }">
-      <colgroup>
-        <col v-for="(col, i) in columns" :key="col.key" :style="{ width: widthOf(col, i) + 'px' }" />
-      </colgroup>
-      <thead @contextmenu.prevent="openMenu">
-        <tr>
-          <th
-            v-for="col in columns"
-            :key="col.key"
-            :class="{ right: col.right }"
-            title="Click to sort, right-click to choose columns"
-            @click="onHeaderClick(col)"
-          >
-            <span class="ellipsis">{{ col.label }}</span>
-            <span v-if="state.sort?.key === col.key" class="sort">{{ state.sort.dir === 1 ? '▲' : '▼' }}</span>
-            <span class="resizer" @click.stop @mousedown.stop.prevent="startResize($event, col)" />
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="(track, i) in state.tracks"
-          :key="track.path"
-          :class="{
-            selected: state.selected.has(track.path),
-            cursor: state.cursor === track.path,
-            dirty: isPending(track),
-          }"
-          @click="onRowClick($event, track)"
-        >
-          <td
-            v-for="col in columns"
-            :key="col.key"
-            :class="{
-              right: col.right,
-              pending:
-                (col.field && isPending(track, col.key)) || (col.key === 'art' && isPictureRemovalPending(track)),
-            }"
-            :title="cellTitle(track, col)"
-            @dblclick="startEdit(track, col.key)"
-          >
-            <input
-              v-if="editing?.path === track.path && editing.key === col.key"
-              ref="editInput"
-              v-model="editText"
-              class="cell-input"
-              @keydown="onEditKey"
-              @blur="commitEdit"
-              @click.stop
-            />
-            <template v-else>
-              <span v-if="col.key === 'index' && isPending(track)" class="dot" title="Unsaved changes">●</span>
-              {{ cell(track, col, i) }}
-            </template>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <div v-if="menu" class="menu-backdrop" @mousedown="menu = null" @contextmenu.prevent="menu = null">
-      <div class="column-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @mousedown.stop>
-        <label v-for="col in allColumns.filter((c) => c.key !== 'index')" :key="col.key">
-          <input type="checkbox" :checked="col.visible" @change="toggleColumn(col)" /> {{ col.label }}
-        </label>
-      </div>
+  <div class="pane">
+    <div v-if="state.largeFolder" class="large">
+      <span>
+        <strong>{{ basename(state.largeFolder.path) }}</strong>
+        {{
+          state.largeFolder.reason === 'folders'
+            ? `has too many subfolders to scan for tracks (over ${state.largeFolder.limit * 2}).`
+            : `holds more than ${state.largeFolder.limit} tracks${state.largeFolder.recursive ? ' with its subfolders' : ''}.`
+        }}
+        {{ state.largeFolder.forced ? 'Pick a narrower folder.' : '' }}
+      </span>
+      <button
+        v-if="!state.largeFolder.forced"
+        class="primary"
+        @click="
+          loadFolder(state.largeFolder.path, { force: true, recursive: state.largeFolder.recursive, confirmed: true })
+        "
+      >
+        Load up to {{ state.config?.max_tracks }} anyway
+      </button>
+      <button
+        v-if="state.largeFolder.recursive"
+        @click="loadFolder(state.largeFolder.path, { recursive: false, confirmed: true })"
+      >
+        Only its own files
+      </button>
+      <button class="link" @click="state.largeFolder = null">Dismiss</button>
     </div>
-    <div v-if="!state.tracks.length" class="empty muted">
-      <p v-if="state.loading">Loading…</p>
-      <template v-else>
-        <p>Pick a folder on the left to load its tracks.</p>
-        <p>
-          <kbd>Ctrl</kbd>/<kbd>Shift</kbd>+click to select several tracks, double-click a cell to edit it,
-          <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> to reorder, <kbd>Del</kbd> to drop tracks from the list.
-        </p>
-      </template>
+    <div ref="container" class="tracks" tabindex="0" @keydown="onKey">
+      <table v-if="state.tracks.length" :style="{ width: tableWidth + 'px' }">
+        <colgroup>
+          <col v-for="(col, i) in columns" :key="col.key" :style="{ width: widthOf(col, i) + 'px' }" />
+        </colgroup>
+        <thead @contextmenu.prevent="openMenu">
+          <tr>
+            <th
+              v-for="col in columns"
+              :key="col.key"
+              :class="{ right: col.right }"
+              title="Click to sort, right-click to choose columns"
+              @click="onHeaderClick(col)"
+            >
+              <span class="ellipsis">{{ col.label }}</span>
+              <span v-if="state.sort?.key === col.key" class="sort">{{ state.sort.dir === 1 ? '▲' : '▼' }}</span>
+              <span class="resizer" @click.stop @mousedown.stop.prevent="startResize($event, col)" />
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="(track, i) in state.tracks"
+            :key="track.path"
+            :class="{
+              selected: state.selected.has(track.path),
+              cursor: state.cursor === track.path,
+              dirty: isPending(track),
+            }"
+            @click="onRowClick($event, track)"
+          >
+            <td
+              v-for="col in columns"
+              :key="col.key"
+              :class="{
+                right: col.right,
+                pending:
+                  (col.field && isPending(track, col.key)) || (col.key === 'art' && isPictureRemovalPending(track)),
+              }"
+              :title="cellTitle(track, col)"
+              @dblclick="startEdit(track, col.key)"
+            >
+              <input
+                v-if="editing?.path === track.path && editing.key === col.key"
+                ref="editInput"
+                v-model="editText"
+                class="cell-input"
+                @keydown="onEditKey"
+                @blur="commitEdit"
+                @click.stop
+              />
+              <template v-else>
+                <span v-if="col.key === 'index' && isPending(track)" class="dot" title="Unsaved changes">●</span>
+                {{ cell(track, col, i) }}
+              </template>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="menu" class="menu-backdrop" @mousedown="menu = null" @contextmenu.prevent="menu = null">
+        <div class="column-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @mousedown.stop>
+          <label v-for="col in allColumns.filter((c) => c.key !== 'index')" :key="col.key">
+            <input type="checkbox" :checked="col.visible" @change="toggleColumn(col)" /> {{ col.label }}
+          </label>
+        </div>
+      </div>
+      <div v-if="!state.tracks.length" class="empty muted">
+        <p v-if="state.loading">Loading…</p>
+        <template v-else>
+          <p>Pick a folder on the left to load its tracks.</p>
+          <p>
+            <kbd>Ctrl</kbd>/<kbd>Shift</kbd>+click to select several tracks, double-click a cell to edit it,
+            <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> to reorder, <kbd>Del</kbd> to drop tracks from the list.
+          </p>
+        </template>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
 .tracks {
+  flex: 1;
   overflow: auto;
   background: var(--panel);
   outline: none;
@@ -369,6 +407,16 @@ td.pending {
   width: 100%;
   padding: 0 3px;
   border-radius: 2px;
+}
+
+.large {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--pending-bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .menu-backdrop {

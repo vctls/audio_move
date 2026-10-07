@@ -9,6 +9,14 @@ export interface Toast {
   text: string
 }
 
+export interface LargeFolder {
+  path: string
+  recursive: boolean
+  reason: 'tracks' | 'folders'
+  limit: number
+  forced: boolean
+}
+
 export interface FieldChange {
   path: string
   field: string
@@ -28,6 +36,8 @@ export const state = reactive({
   // Paths whose embedded pictures are removed on the next save.
   pictureRemovals: {} as Record<string, true>,
   loading: false,
+  loadingPath: '',
+  largeFolder: null as LargeFolder | null,
   saving: false,
   sort: null as { key: string; dir: 1 | -1 } | null,
   toasts: [] as Toast[],
@@ -222,11 +232,36 @@ function replaceTrack(oldPath: string, track: Track) {
 
 // --- loading -------------------------------------------------------------------------
 
-export async function loadFolder(path: string) {
-  if (pendingCount.value && !confirm('Discard unsaved tag changes?')) return
+let loadController: AbortController | null = null
+
+/**
+ * Load a folder's tracks, aborting any load still in flight.
+ * A folder over the server's size limit only sets state.largeFolder, so the user confirms first.
+ */
+export async function loadFolder(
+  path: string,
+  opts: { force?: boolean; recursive?: boolean; confirmed?: boolean } = {},
+) {
+  if (!opts.confirmed && pendingCount.value && !confirm('Discard unsaved tag changes?')) return
+  loadController?.abort()
+  const controller = new AbortController()
+  loadController = controller
+  const recursive = opts.recursive ?? state.recursive
   state.loading = true
+  state.loadingPath = path
+  state.largeFolder = null
   try {
-    const res = await api.tracks(path, state.recursive)
+    const res = await api.tracks(path, recursive, !!opts.force, controller.signal)
+    if (res.too_many) {
+      state.largeFolder = {
+        path,
+        recursive,
+        reason: res.reason ?? 'tracks',
+        limit: res.limit ?? 0,
+        forced: !!res.forced,
+      }
+      return
+    }
     state.folder = path
     state.tracks = res.tracks
     state.pending = {}
@@ -237,11 +272,14 @@ export async function loadFolder(path: string) {
     undoStack.length = redoStack.length = 0
     history.undo = history.redo = 0
     if (res.errors.length) toast(`${res.errors.length} file(s) could not be read: ${res.errors[0].error}`, 'error')
-    if (res.truncated) toast(`Only the first ${res.tracks.length} files were loaded`, 'error')
   } catch (e) {
-    toast(errorText(e), 'error')
+    if (!controller.signal.aborted) toast(errorText(e), 'error')
   } finally {
-    state.loading = false
+    if (loadController === controller) {
+      loadController = null
+      state.loading = false
+      state.loadingPath = ''
+    }
   }
 }
 

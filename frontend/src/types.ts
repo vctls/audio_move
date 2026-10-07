@@ -53,8 +53,20 @@ export interface AppConfig {
 export interface DirEntry {
   name: string
   path: string
+}
+
+export interface DirSummary {
   has_children: boolean
   audio: number
+}
+
+export interface TracksResponse {
+  tracks: Track[]
+  errors: { path: string; error: string }[]
+  too_many: boolean
+  reason?: 'tracks' | 'folders'
+  limit?: number
+  forced?: boolean
 }
 
 export type Operation = 'move' | 'copy' | 'rename'

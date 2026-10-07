@@ -79,8 +79,13 @@ export const api = {
     ),
   settings: () => request<Settings>('GET', '/api/settings'),
   saveSettings: (s: Settings) => request<Settings>('PUT', '/api/settings', s),
-  mbSearch: (params: { artist?: string; album?: string; query?: string; offset?: number }) =>
-    request<MbSearchResult>('GET', `/api/mb/search?${qs(params as Record<string, string>)}`),
+  mbSearch: (body: {
+    artist?: string
+    album?: string
+    query?: string
+    offset?: number
+    tracks?: { path: string; tags: Tags; info: TrackInfo }[]
+  }) => request<MbSearchResult>('POST', '/api/mb/search', body),
   mbRelease: (id: string, opts: { date: string; groups: string; disc_for_single: boolean; padding: number }) =>
     request<MbRelease>('GET', `/api/mb/release/${id}?${qs(opts)}`),
   mbCover: (body: { release_id: string; dirs: string[]; size: string; overwrite: boolean }) =>

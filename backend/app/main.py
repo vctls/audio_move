@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .config import AppConfig, PathError, Roots, Settings, SettingsStore
+from .cues import collect_cues
 from .fileops import Journal, execute_plan, plan_operation
 from .guess import guess
 from .musicbrainz import (
@@ -22,6 +23,7 @@ from .musicbrainz import (
     TagOptions,
     build_query,
     parse_mbid,
+    rank_releases,
     release_with_tags,
 )
 from .pictures import extract_folder_images, folder_image_info, save_folder_image
@@ -387,18 +389,35 @@ def put_settings(s: Settings) -> Settings:
 # --- MusicBrainz ----------------------------------------------------------------------------
 
 
-@app.get("/api/mb/search")
-async def mb_search(
-    artist: str = "", album: str = "", query: str = "", offset: int = 0
-) -> dict[str, Any]:
+class LocalTrack(BaseModel):
+    path: str
+    tags: dict[str, list[str]] = Field(default_factory=dict)
+    info: dict[str, Any] = Field(default_factory=dict)
+
+
+class MbSearchBody(BaseModel):
+    artist: str = ""
+    album: str = ""
+    query: str = ""
+    offset: int = 0
+    # The files being tagged, whose tags and folders hint at which release fits best.
+    tracks: list[LocalTrack] = Field(default_factory=list)
+
+
+@app.post("/api/mb/search")
+async def mb_search(body: MbSearchBody) -> dict[str, Any]:
     mb: MusicBrainzClient = state["mb"]
-    text = query.strip()
+    text = body.query.strip()
     if text and parse_mbid(text):
-        return await mb.lookup(text)
-    q = text or build_query(artist, album)
-    if not q:
-        raise HTTPException(400, "Enter an artist, an album or a query")
-    return {**(await mb.search(q, offset=offset)), "query": q}
+        res = await mb.lookup(text)
+    else:
+        q = text or build_query(body.artist, body.album)
+        if not q:
+            raise HTTPException(400, "Enter an artist, an album or a query")
+        res = {**(await mb.search(q, offset=body.offset)), "query": q}
+    tracks = [t.model_dump() for t in body.tracks if roots.contains(t.path)]
+    cues = await run_in_threadpool(collect_cues, tracks)
+    return {**res, "releases": rank_releases(res["releases"], cues)}
 
 
 @app.get("/api/mb/release/{mbid}")

@@ -147,6 +147,13 @@ export interface MbReleaseSummary {
   track_count: number
   type: string
   secondary_types: string[]
+  // Heuristic fit with the local files, present on search results only.
+  match?: MbMatch
+}
+
+export interface MbMatch {
+  points: number
+  reasons: { points: number; reason: string }[]
 }
 
 export interface MbTrack {

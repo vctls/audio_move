@@ -82,6 +82,7 @@ async function search(append = false) {
       album: album.value,
       query: query.value,
       offset: append ? results.value.length : 0,
+      tracks: locals.map((t) => ({ path: t.path, tags: mergedTags(t), info: t.info })),
     })
     results.value = append ? [...results.value, ...res.releases] : res.releases
     total.value = res.count
@@ -101,6 +102,9 @@ function searchByFields() {
 
 const trackMatch = (r: MbReleaseSummary) =>
   r.track_count === locals.length || r.media.some((m) => m.track_count === locals.length)
+
+const matchTitle = (r: MbReleaseSummary) =>
+  (r.match?.reasons ?? []).map((x) => `${x.points > 0 ? '+' : ''}${x.points}  ${x.reason}`).join('\n')
 
 function onResultsKey(e: KeyboardEvent) {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
@@ -343,6 +347,14 @@ onMounted(() => {
             <div class="row">
               <strong class="grow ellipsis">{{ r.title }}</strong>
               <span class="chip" :class="trackMatch(r) ? 'ok' : 'muted'">{{ r.track_count }} tr</span>
+              <span
+                v-if="r.match?.points"
+                class="chip"
+                :class="r.match.points > 0 ? 'ok' : 'warn'"
+                :title="matchTitle(r)"
+              >
+                {{ r.match.points > 0 ? '+' : '' }}{{ r.match.points }}
+              </span>
             </div>
             <div class="ellipsis">
               {{ r.artist }}<span v-if="r.disambiguation" class="muted"> ({{ r.disambiguation }})</span>

@@ -12,6 +12,8 @@ from typing import Any
 
 import httpx
 
+from .scoring import Candidate, Cue, format_family, score
+
 API_ROOT = "https://musicbrainz.org/ws/2"
 CAA_ROOT = "https://coverartarchive.org"
 RELEASE_INC = "recordings+artist-credits+labels+release-groups+media+isrcs"
@@ -154,6 +156,24 @@ def summarize_release_detail(r: dict) -> dict[str, Any]:
         }
     )
     return base
+
+
+def candidate(summary: dict[str, Any]) -> Candidate:
+    media = summary["media"]
+    return Candidate(
+        formats=frozenset(format_family(m["format"]) for m in media if m["format"]),
+        track_counts=frozenset([summary["track_count"], *(m["track_count"] for m in media)]),
+    )
+
+
+def rank_releases(releases: list[dict[str, Any]], cues: list[Cue]) -> list[dict[str, Any]]:
+    """Attach a heuristic match to each release summary and sort by it plus the search score.
+
+    The sort is stable, so releases that tie keep the order MusicBrainz gave them.
+    """
+    for r in releases:
+        r["match"] = score(candidate(r), cues).to_dict()
+    return sorted(releases, key=lambda r: -((r["score"] or 0) + r["match"]["points"]))
 
 
 @dataclass

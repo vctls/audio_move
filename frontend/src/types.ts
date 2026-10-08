@@ -92,8 +92,20 @@ export interface Settings {
   mb_cover: boolean
   mb_cover_size: '500' | '1200' | 'original'
   mb_cover_overwrite: boolean
+  mb_preset: string
+  tag_presets: TagPreset[]
   guess_patterns: string[]
   format_presets: string[]
+}
+
+export type TagAction =
+  | { type: 'format'; field: string; template: string }
+  | { type: 'remove'; fields: string[] }
+  | { type: 'pictures_to_folder' }
+
+export interface TagPreset {
+  name: string
+  actions: TagAction[]
 }
 
 export interface PlanItem {

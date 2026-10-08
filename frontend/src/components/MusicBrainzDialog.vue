@@ -7,6 +7,7 @@ import {
   firstValue,
   mergedTags,
   reloadTracks,
+  runPreset,
   stage,
   state,
   targetTracks,
@@ -70,6 +71,7 @@ const saveCover = ref(s.mb_cover)
 const coverSize = ref(s.mb_cover_size)
 const coverOverwrite = ref(s.mb_cover_overwrite)
 const applying = ref(false)
+const preset = ref(s.mb_preset)
 
 // --- search ------------------------------------------------------------------------
 
@@ -284,6 +286,7 @@ async function apply() {
     mb_cover: saveCover.value,
     mb_cover_size: coverSize.value,
     mb_cover_overwrite: coverOverwrite.value,
+    mb_preset: preset.value,
   })
   if (saveCover.value && release.value.cover_art) {
     applying.value = true
@@ -310,6 +313,20 @@ async function apply() {
     }
   }
   toast(summary, 'info')
+  const chosen = state.settings?.tag_presets.find((p) => p.name === preset.value)
+  if (chosen) {
+    applying.value = true
+    try {
+      await runPreset(
+        chosen,
+        rows.value.filter((r) => r.entry).map((r) => r.track.path),
+      )
+    } catch (e) {
+      toast(`${chosen.name} failed: ${errorText(e)}`, 'error')
+    } finally {
+      applying.value = false
+    }
+  }
   emit('close')
 }
 
@@ -504,6 +521,13 @@ onMounted(() => {
       </select>
       <label title="Replace an existing folder image">
         <input v-model="coverOverwrite" type="checkbox" :disabled="!saveCover" /> replace existing
+      </label>
+      <label title="Tag preset run on the assigned files after the MusicBrainz values are staged">
+        Then run
+        <select v-model="preset">
+          <option value="">no preset</option>
+          <option v-for="p in state.settings?.tag_presets ?? []" :key="p.name" :value="p.name">{{ p.name }}</option>
+        </select>
       </label>
       <span class="grow muted">
         <template v-if="release">{{ changedValues }} change(s) on {{ changedFiles }} file(s)</template>

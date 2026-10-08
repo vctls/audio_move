@@ -1,6 +1,6 @@
 import { computed, reactive } from 'vue'
 import { api, ApiError } from './api'
-import type { AppConfig, PendingFields, Settings, Tags, Track } from './types'
+import type { AppConfig, PendingFields, Settings, TagPreset, Tags, Track } from './types'
 import { arraysEqual, naturalCompare } from './util'
 
 export interface Toast {
@@ -144,6 +144,56 @@ export function stagePictureRemoval(paths: string[]) {
   const next = { ...state.pictureRemovals }
   for (const t of withPictures) next[t.path] = true
   state.pictureRemovals = next
+}
+
+/**
+ * Save embedded pictures as folder images where a folder has none, then stage their removal.
+ * Files whose folder still has no image afterwards keep their pictures.
+ */
+export async function picturesToFolder(paths: string[]): Promise<{ removed: number; kept: number }> {
+  const wanted = new Set(paths)
+  const withArt = () => state.tracks.filter((t) => wanted.has(t.path) && t.pictures.length)
+  const missing = withArt().filter((t) => !t.folder_image)
+  if (missing.length) {
+    await api.extractPictures(missing.map((t) => t.path))
+    await reloadTracks()
+    state.treeVersion++
+  }
+  const safe = withArt().filter((t) => t.folder_image)
+  stagePictureRemoval(safe.map((t) => t.path))
+  return { removed: safe.length, kept: withArt().length - safe.length }
+}
+
+/**
+ * Run a tag preset on these tracks, starting from their unsaved values, and stage the result.
+ */
+export async function runPreset(preset: TagPreset, paths: string[]) {
+  const wanted = new Set(paths)
+  const tracks = state.tracks.filter((t) => wanted.has(t.path))
+  const tagActions = preset.actions.filter((a) => a.type !== 'pictures_to_folder')
+  const changes: FieldChange[] = []
+  if (tagActions.length && tracks.length) {
+    const { results } = await api.runPreset(
+      tagActions,
+      tracks.map((t) => ({ path: t.path, tags: mergedTags(t), info: t.info })),
+    )
+    tracks.forEach((t, i) => {
+      const before = mergedTags(t)
+      const after = results[i]
+      for (const field of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        if (!arraysEqual(before[field], after[field]))
+          changes.push({ path: t.path, field, values: after[field] ?? null })
+      }
+    })
+    stage(changes)
+  }
+  const pictures = preset.actions.some((a) => a.type === 'pictures_to_folder')
+    ? await picturesToFolder(paths)
+    : { removed: 0, kept: 0 }
+  const parts = [`${changes.length} change(s) on ${new Set(changes.map((c) => c.path)).size} file(s)`]
+  if (pictures.removed) parts.push(`pictures removed from ${pictures.removed} file(s)`)
+  if (pictures.kept) parts.push(`${pictures.kept} file(s) keep their pictures, no folder image could be saved`)
+  toast(`${preset.name}: ${parts.join(', ')}`, pictures.kept ? 'error' : 'info')
 }
 
 export function undo() {

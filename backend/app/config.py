@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from .presets import TagPreset, default_presets
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_PATTERN = (
@@ -47,6 +49,9 @@ class Settings(BaseModel):
     mb_cover: bool = False
     mb_cover_size: Literal["500", "1200", "original"] = "1200"
     mb_cover_overwrite: bool = False
+    # Name of the tag preset run after applying a MusicBrainz release, or "" for none.
+    mb_preset: str = ""
+    tag_presets: list[TagPreset] = Field(default_factory=default_presets)
     guess_patterns: list[str] = Field(
         default_factory=lambda: [
             "%tracknumber% - %artist% - %title%",

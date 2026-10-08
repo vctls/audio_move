@@ -6,6 +6,7 @@ import FormatDialog from './components/FormatDialog.vue'
 import GuessDialog from './components/GuessDialog.vue'
 import MoveDialog from './components/MoveDialog.vue'
 import MusicBrainzDialog from './components/MusicBrainzDialog.vue'
+import PresetsDialog from './components/PresetsDialog.vue'
 import PropertiesPanel from './components/PropertiesPanel.vue'
 import RemovePicturesDialog from './components/RemovePicturesDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
@@ -28,7 +29,7 @@ import {
 } from './store'
 import { basename, formatLength, isEditableTarget } from './util'
 
-type DialogName = 'autonumber' | 'guess' | 'format' | 'pictures' | 'mb' | 'move' | 'settings' | null
+type DialogName = 'autonumber' | 'guess' | 'format' | 'pictures' | 'presets' | 'mb' | 'move' | 'settings' | null
 const dialog = ref<DialogName>(null)
 const toolsOpen = ref(false)
 
@@ -142,6 +143,7 @@ onBeforeUnmount(() => {
           <button @click="open('guess')">Guess values from file name…</button>
           <button @click="open('format')">Format field from other fields…</button>
           <button @click="open('pictures')">Remove embedded pictures…</button>
+          <button @click="open('presets')">Tag presets…</button>
         </div>
       </div>
       <span class="sep" />
@@ -174,6 +176,7 @@ onBeforeUnmount(() => {
     <GuessDialog v-if="dialog === 'guess'" @close="dialog = null" />
     <FormatDialog v-if="dialog === 'format'" @close="dialog = null" />
     <RemovePicturesDialog v-if="dialog === 'pictures'" @close="dialog = null" />
+    <PresetsDialog v-if="dialog === 'presets'" @close="dialog = null" />
     <MusicBrainzDialog v-if="dialog === 'mb'" @close="dialog = null" />
     <MoveDialog v-if="dialog === 'move'" @close="dialog = null" />
     <SettingsDialog v-if="dialog === 'settings'" @close="dialog = null" />

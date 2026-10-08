@@ -27,6 +27,7 @@ from .musicbrainz import (
     release_with_tags,
 )
 from .pictures import extract_folder_images, folder_image_info, save_folder_image
+from .presets import TagAction, apply_actions
 from .tags import TagError, WriteOptions, is_audio, read_track, write_track
 from .titleformat import Context, format_track
 
@@ -279,6 +280,21 @@ def format_values(body: FormatBody) -> dict[str, Any]:
     return {
         "results": [
             format_track(body.template, Context(i.tags, i.info, i.path)) for i in body.items
+        ]
+    }
+
+
+class PresetBody(BaseModel):
+    actions: list[TagAction]
+    items: list[FormatItem]
+
+
+@app.post("/api/presets/run")
+def run_preset(body: PresetBody) -> dict[str, Any]:
+    multivalue = settings_store.load().multivalue_fields
+    return {
+        "results": [
+            apply_actions(body.actions, i.tags, i.info, i.path, multivalue) for i in body.items
         ]
     }
 

@@ -9,6 +9,7 @@ import type {
   Operation,
   Plan,
   Settings,
+  TagAction,
   Tags,
   Track,
   TrackInfo,
@@ -66,6 +67,8 @@ export const api = {
     }),
   format: (template: string, items: { path: string; tags: Tags; info: TrackInfo }[]) =>
     request<{ results: string[] }>('POST', '/api/format', { template, items }),
+  runPreset: (actions: TagAction[], items: { path: string; tags: Tags; info: TrackInfo }[]) =>
+    request<{ results: Tags[] }>('POST', '/api/presets/run', { actions, items }),
   guess: (pattern: string, paths: string[]) =>
     request<{ results: (Record<string, string> | null)[] }>('POST', '/api/guess', { pattern, paths }),
   preview: (body: FileOpRequest) => request<Plan>('POST', '/api/fileops/preview', body),

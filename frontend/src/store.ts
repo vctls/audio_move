@@ -93,6 +93,15 @@ export const isPending = (track: Track, field?: string) => {
 
 export const isPictureRemovalPending = (track: Track) => !!state.pictureRemovals[track.path]
 
+/**
+ * Describe what the files hold on disk for a field, for tooltips on staged values.
+ */
+export function onDiskTitle(tracks: Track[], field: string): string {
+  const values = new Set(tracks.map((t) => displayValue(t.tags[field])))
+  if (values.size > 1) return 'On disk: <multiple values>'
+  return `On disk: ${[...values][0] || '(empty)'}`
+}
+
 const serialize = () => JSON.stringify({ pending: state.pending, pictures: state.pictureRemovals })
 
 function restore(json: string) {
@@ -228,6 +237,32 @@ export function revert() {
   snapshot()
   state.pending = {}
   state.pictureRemovals = {}
+}
+
+/**
+ * Drop the staged changes of one file, or only those to one of its fields.
+ */
+export function discard(path: string, field?: string) {
+  const fields = state.pending[path]
+  if (field === undefined) {
+    if (!fields && !state.pictureRemovals[path]) return
+    snapshot()
+    delete state.pending[path]
+    delete state.pictureRemovals[path]
+    return
+  }
+  if (!fields || !(field in fields)) return
+  snapshot()
+  const next = { ...fields }
+  delete next[field]
+  if (Object.keys(next).length) state.pending[path] = next
+  else delete state.pending[path]
+}
+
+export function discardPictureRemoval(path: string) {
+  if (!state.pictureRemovals[path]) return
+  snapshot()
+  delete state.pictureRemovals[path]
 }
 
 export async function save(): Promise<boolean> {

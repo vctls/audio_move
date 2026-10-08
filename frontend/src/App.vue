@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AutoNumberDialog from './components/AutoNumberDialog.vue'
+import ChangesDialog from './components/ChangesDialog.vue'
 import FolderTree from './components/FolderTree.vue'
 import FormatDialog from './components/FormatDialog.vue'
 import GuessDialog from './components/GuessDialog.vue'
@@ -29,7 +30,8 @@ import {
 } from './store'
 import { basename, formatLength, isEditableTarget } from './util'
 
-type DialogName = 'autonumber' | 'guess' | 'format' | 'pictures' | 'presets' | 'mb' | 'move' | 'settings' | null
+type DialogName =
+  'autonumber' | 'changes' | 'guess' | 'format' | 'pictures' | 'presets' | 'mb' | 'move' | 'settings' | null
 const dialog = ref<DialogName>(null)
 const toolsOpen = ref(false)
 
@@ -126,6 +128,9 @@ onBeforeUnmount(() => {
       >
         Save{{ pendingCount ? ` (${pendingCount})` : '' }}
       </button>
+      <button :disabled="!pendingCount" title="Review pending changes before saving" @click="open('changes')">
+        Review…
+      </button>
       <button :disabled="!pendingCount" title="Discard all pending changes" @click="revert()">Revert</button>
       <button :disabled="!canUndo" title="Undo (Ctrl+Z)" @click="undo()">Undo</button>
       <button :disabled="!canRedo" title="Redo (Ctrl+Y)" @click="redo()">Redo</button>
@@ -169,10 +174,13 @@ onBeforeUnmount(() => {
       <span v-if="state.loadingPath">Loading {{ basename(state.loadingPath) }}…</span>
       <span>{{ state.tracks.length }} tracks · {{ formatLength(totalLength) }}</span>
       <span v-if="state.selected.size"> {{ state.selected.size }} selected · {{ formatLength(selectedLength) }} </span>
-      <span v-if="pendingCount" class="pending">{{ pendingCount }} unsaved</span>
+      <button v-if="pendingCount" class="link pending" title="Review pending changes" @click="open('changes')">
+        {{ pendingCount }} unsaved
+      </button>
     </footer>
 
     <AutoNumberDialog v-if="dialog === 'autonumber'" @close="dialog = null" />
+    <ChangesDialog v-if="dialog === 'changes'" @close="dialog = null" />
     <GuessDialog v-if="dialog === 'guess'" @close="dialog = null" />
     <FormatDialog v-if="dialog === 'format'" @close="dialog = null" />
     <RemovePicturesDialog v-if="dialog === 'pictures'" @close="dialog = null" />
@@ -275,5 +283,9 @@ onBeforeUnmount(() => {
   background: var(--panel);
   color: var(--muted);
   font-size: 12px;
+}
+
+.statusbar .pending {
+  color: var(--pending);
 }
 </style>

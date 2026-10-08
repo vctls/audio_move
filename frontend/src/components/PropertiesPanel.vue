@@ -5,6 +5,7 @@ import {
   isPending,
   isPictureRemovalPending,
   mergedTags,
+  onDiskTitle,
   parseInput,
   selectedTracks,
   stage,
@@ -37,6 +38,7 @@ interface Row {
   multiple: boolean
   present: number
   pending: boolean
+  onDisk: string
 }
 
 const tracks = selectedTracks
@@ -49,12 +51,14 @@ const rows = computed<Row[]>(() => {
   return [...STANDARD, ...[...extra].sort()].map((field) => {
     const values = merged.map((m) => displayValue(m[field]))
     const multiple = new Set(values).size > 1
+    const pending = ts.some((t) => isPending(t, field))
     return {
       field,
       value: multiple ? '' : values[0],
       multiple,
       present: merged.filter((m) => m[field]?.length).length,
-      pending: ts.some((t) => isPending(t, field)),
+      pending,
+      onDisk: pending ? onDiskTitle(ts, field) : '',
     }
   })
 })
@@ -230,7 +234,11 @@ const info = computed(() => {
                 />
                 <template v-else>{{ row.field }}</template>
               </td>
-              <td class="value" @click="editing?.field !== row.field && startEdit(row)">
+              <td
+                class="value"
+                :title="row.onDisk || undefined"
+                @click="editing?.field !== row.field && startEdit(row)"
+              >
                 <input
                   v-if="editing?.field === row.field && editing.part === 'value'"
                   ref="input"

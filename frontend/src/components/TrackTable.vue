@@ -6,6 +6,7 @@ import {
   isPending,
   isPictureRemovalPending,
   loadFolder,
+  onDiskTitle,
   parseInput,
   selectOnly,
   selectRange,
@@ -116,6 +117,7 @@ function artLabel(track: Track): string {
 function cellTitle(track: Track, col: Column): string | undefined {
   if (col.key === 'path') return track.path
   if (col.key === 'art' && track.pictures.length) return track.pictures.map(pictureLabel).join('\n')
+  if (col.field && isPending(track, col.key)) return onDiskTitle([track], col.key)
   return undefined
 }
 

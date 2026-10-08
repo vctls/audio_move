@@ -56,6 +56,51 @@ export function showMore(path: string) {
   nodeState(path).shown += PAGE_SIZE
 }
 
+function visiblePaths() {
+  const paths: string[] = []
+  const walk = (dirs: DirEntry[]) => {
+    for (const dir of dirs) {
+      paths.push(dir.path)
+      const node = tree.nodes[dir.path]
+      if (node?.expanded && node.children) walk(node.children.slice(0, node.shown))
+    }
+  }
+  walk(tree.roots)
+  return paths
+}
+
+/**
+ * Apply an arrow key to the tree and return the folder that should be active next.
+ * Right expands a folder, then moves into it. Left collapses a folder, then moves to its parent.
+ * Returns undefined for any other key.
+ */
+export function navigate(path: string, key: string): string | undefined {
+  const paths = visiblePaths()
+  const index = paths.indexOf(path)
+  if (index < 0) return key.startsWith('Arrow') ? paths[0] : undefined
+  const node = tree.nodes[path]
+  switch (key) {
+    case 'ArrowUp':
+      return paths[Math.max(0, index - 1)]
+    case 'ArrowDown':
+      return paths[Math.min(paths.length - 1, index + 1)]
+    case 'ArrowRight':
+      if (!node?.expanded) {
+        if (tree.summaries[path]?.has_children ?? true) void toggle(path)
+        return path
+      }
+      return node.children?.length ? paths[index + 1] : path
+    case 'ArrowLeft': {
+      if (node?.expanded) {
+        void toggle(path)
+        return path
+      }
+      const parent = path.slice(0, path.lastIndexOf('/'))
+      return paths.includes(parent) ? parent : path
+    }
+  }
+}
+
 /**
  * Expand every ancestor of a path so it becomes visible.
  */

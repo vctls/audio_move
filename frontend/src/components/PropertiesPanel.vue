@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import {
   displayValue,
+  isDrasticChange,
   isPending,
   isPictureRemovalPending,
   mergedTags,
@@ -38,6 +39,7 @@ interface Row {
   multiple: boolean
   present: number
   pending: boolean
+  drastic: boolean
   onDisk: string
 }
 
@@ -58,6 +60,7 @@ const rows = computed<Row[]>(() => {
       multiple,
       present: merged.filter((m) => m[field]?.length).length,
       pending,
+      drastic: pending && ts.some((t) => isDrasticChange(t, field)),
       onDisk: pending ? onDiskTitle(ts, field) : '',
     }
   })
@@ -223,7 +226,7 @@ const info = computed(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in rows" :key="row.field" :class="{ pending: row.pending }">
+            <tr v-for="row in rows" :key="row.field" :class="{ pending: row.pending, drastic: row.drastic }">
               <td class="name" title="Double-click to rename this field" @dblclick="startEdit(row, 'name')">
                 <input
                   v-if="editing?.field === row.field && editing.part === 'name'"
@@ -348,6 +351,10 @@ const info = computed(() => {
 
 .meta tr.pending {
   background: var(--pending-bg);
+}
+
+.meta tr.drastic td.value {
+  color: var(--danger);
 }
 
 .meta input {

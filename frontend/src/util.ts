@@ -54,3 +54,17 @@ export function pictureLabel(p: { type: string; mime: string; width: number; hei
   const format = p.mime.replace('image/', '').toUpperCase()
   return [p.type, format, formatDims(p.width, p.height), formatBytes(p.size)].filter(Boolean).join(' · ')
 }
+
+/**
+ * Count the single-character insertions, deletions and substitutions that turn one string into the other.
+ */
+export function levenshtein(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i]
+    for (let j = 1; j <= b.length; j++)
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    prev = row
+  }
+  return prev[b.length]
+}

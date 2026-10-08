@@ -1,7 +1,7 @@
 import { computed, reactive } from 'vue'
 import { api, ApiError } from './api'
 import type { AppConfig, PendingFields, Settings, TagPreset, Tags, Track } from './types'
-import { arraysEqual, naturalCompare } from './util'
+import { arraysEqual, levenshtein, naturalCompare } from './util'
 
 export interface Toast {
   id: number
@@ -100,6 +100,21 @@ export function onDiskTitle(tracks: Track[], field: string): string {
   const values = new Set(tracks.map((t) => displayValue(t.tags[field])))
   if (values.size > 1) return 'On disk: <multiple values>'
   return `On disk: ${[...values][0] || '(empty)'}`
+}
+
+const NAME_FIELDS = new Set(['ARTIST', 'TITLE', 'ALBUM', 'ALBUM ARTIST', 'COMPOSER', 'PERFORMER', 'CONDUCTOR'])
+// Share of the longer value that may change before a renamed field is flagged.
+const MAX_NAME_CHANGE = 0.5
+
+/**
+ * Whether a staged name replaces the one on disk with something too different, ignoring case.
+ */
+export function isDrasticChange(track: Track, field: string): boolean {
+  if (!NAME_FIELDS.has(field)) return false
+  const staged = displayValue(state.pending[track.path]?.[field] ?? undefined).toLowerCase()
+  const onDisk = displayValue(track.tags[field]).toLowerCase()
+  if (!staged || !onDisk) return false
+  return levenshtein(onDisk, staged) / Math.max(onDisk.length, staged.length) > MAX_NAME_CHANGE
 }
 
 const serialize = () => JSON.stringify({ pending: state.pending, pictures: state.pictureRemovals })

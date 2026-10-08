@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   displayValue,
   fieldValues,
+  isDrasticChange,
   isPending,
   isPictureRemovalPending,
   loadFolder,
@@ -275,6 +276,7 @@ function onHeaderClick(col: Column) {
                 right: col.right,
                 pending:
                   (col.field && isPending(track, col.key)) || (col.key === 'art' && isPictureRemovalPending(track)),
+                drastic: col.field && isDrasticChange(track, col.key),
               }"
               :title="cellTitle(track, col)"
               @dblclick="startEdit(track, col.key)"
@@ -396,6 +398,10 @@ tbody tr.cursor td {
 td.pending {
   color: var(--pending);
   font-style: italic;
+}
+
+td.drastic {
+  color: var(--danger);
 }
 
 .dot {

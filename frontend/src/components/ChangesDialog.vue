@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { discard, discardPictureRemoval, displayValue, pendingCount, revert, save, state } from '../store'
+import {
+  discard,
+  discardPictureRemoval,
+  displayValue,
+  isDrasticChange,
+  pendingCount,
+  revert,
+  save,
+  state,
+} from '../store'
 import { relativeTo } from '../util'
 import Modal from './Modal.vue'
 
@@ -11,7 +20,12 @@ const files = computed(() =>
     .filter((t) => state.pending[t.path] || state.pictureRemovals[t.path])
     .map((t) => ({
       track: t,
-      fields: Object.entries(state.pending[t.path] ?? {}).map(([field, next]) => ({ field, old: t.tags[field], next })),
+      fields: Object.entries(state.pending[t.path] ?? {}).map(([field, next]) => ({
+        field,
+        old: t.tags[field],
+        next,
+        drastic: isDrasticChange(t, field),
+      })),
       pictures: state.pictureRemovals[t.path] ? t.pictures.length : 0,
     })),
 )
@@ -43,7 +57,11 @@ async function saveAll() {
               <td class="f">{{ c.field }}</td>
               <td class="old" :class="{ empty: !c.old?.length }">{{ displayValue(c.old) || '—' }}</td>
               <td class="arrow">→</td>
-              <td class="new" :class="{ removed: c.next === null }">
+              <td
+                class="new"
+                :class="{ removed: c.next === null, drastic: c.drastic }"
+                :title="c.drastic ? 'Very different from the value on disk' : undefined"
+              >
                 {{ c.next === null ? 'removed' : displayValue(c.next) }}
               </td>
               <td class="act">
@@ -143,6 +161,10 @@ td.new {
 
 td.new.removed {
   font-style: italic;
+}
+
+td.new.drastic {
+  color: var(--danger);
 }
 
 td.act {

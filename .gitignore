@@ -3,3 +3,5 @@ backend/.venv/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+docker-compose.override.y*ml
+compose.override.y*ml
